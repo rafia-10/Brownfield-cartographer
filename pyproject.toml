@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brownfield-cartographer"
+version = "0.1.0"
+description = "Google Maps for unfamiliar codebases — module graphs + data lineage in minutes."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "tree-sitter>=0.23,<0.25",
+    "tree-sitter-python>=0.23,<0.25",
+    "sqlglot>=23.0,<26.0",
+    "networkx>=3.2",
+    "typer[all]>=0.12",
+    "rich>=13.0",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+cartographer = "src.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov"]
