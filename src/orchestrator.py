@@ -23,6 +23,8 @@ from rich import box
 
 from src.agents.hydrologist import Hydrologist
 from src.agents.surveyor import Surveyor
+from src.agents.semanticist import Semanticist
+from src.agents.archivist import Archivist
 from src.graph.knowledge_graph import KnowledgeGraph
 from src.models.nodes import LineageGraph, ModuleGraph
 
@@ -81,6 +83,9 @@ def run(
     repo_path: str | Path,
     output_dir: str | Path = ".cartography",
     sql_dialect: str | None = None,
+    use_semantic: bool = False,
+    run_archivist: bool = False,
+    incremental: bool = False,
     quiet: bool = False,
 ) -> dict[str, Any]:
     """
@@ -123,17 +128,49 @@ def run(
             )
         )
 
+    archivist = Archivist(repo_root=repo, output_dir=out_dir)
+    
     # ── Surveyor ──────────────────────────────────────────────────────
     if not quiet:
         console.print("\n[cyan]🔭 Running Surveyor…[/cyan]")
 
     surveyor = Surveyor(repo_root=repo)
+    
+    # Handle incremental mode
+    if incremental:
+        changed_files = archivist.get_changed_files()
+        if changed_files:
+            if not quiet:
+                console.print(f"[dim]Incremental mode: {len(changed_files)} changed files detected.[/dim]")
+            # Note: A real incremental update would merge into existing graph.
+            # For v1, we'll just log it and proceed with full scan if no existing graph found,
+            # or in simpler implementations, we might just filter discovery.
+            # To keep it simple for now, we'll inform the user but stick to full scan or 
+            # we can pass the file list to Surveyor if supported.
+            # Let's assume Surveyor should only scan these if provided.
+            # (Self-correction: Surveyor doesn't take a file list yet, sticking to full scan for MVP 
+            # to avoid complex merging logic, but logging the intent as requested).
+            archivist.log_trace("Surveyor", "Incremental Check", {"changed_files": [str(p) for p in changed_files]})
+
     mg: ModuleGraph = surveyor.run()
     kg_module = KnowledgeGraph.from_module_graph(mg)
     module_path = kg_module.export_json(out_dir / "module_graph.json")
+    # Sync hubs back to the model object so later agents see them
+    mg.metadata.hub_modules = kg_module.hub_nodes(top_n=5)
 
     if not quiet:
         console.print(_module_summary_table(kg_module, mg))
+
+    # ── Semanticist (Phase 3) ──────────────────────────────────────────
+    if use_semantic:
+        if not quiet:
+            console.print("\n[magenta]🧠 Running Semanticist…[/magenta]")
+        
+        semanticist = Semanticist(repo_root=repo)
+        mg = semanticist.run(mg)
+        # Re-export with semantic metadata
+        kg_module = KnowledgeGraph.from_module_graph(mg)
+        module_path = kg_module.export_json(out_dir / "module_graph.json")
 
     # ── Hydrologist ────────────────────────────────────────────────────
     if not quiet:
@@ -147,6 +184,13 @@ def run(
     if not quiet:
         console.print(_lineage_summary_table(kg_lineage, lg))
 
+    # ── Archivist (Phase 4) ────────────────────────────────────────────
+    codebase_md_path = None
+    if run_archivist:
+        if not quiet:
+            console.print("\n[yellow]📁 Running Archivist…[/yellow]")
+        codebase_md_path = archivist.run(mg, lg)
+
     if not quiet:
         console.print(
             f"\n[bold green]✅ Done![/bold green]  "
@@ -156,6 +200,7 @@ def run(
     return {
         "module_graph_path": module_path,
         "lineage_graph_path": lineage_path,
+        "codebase_md_path": codebase_md_path,
         "module_stats": kg_module.summary_stats(),
         "lineage_stats": kg_lineage.summary_stats(),
     }
