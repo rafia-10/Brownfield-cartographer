@@ -17,6 +17,15 @@ dependencies = [
     "typer[all]>=0.12",
     "rich>=13.0",
     "pydantic>=2.0",
+    "langgraph>=0.0.10",
+    "langchain-core",
+    "langchain-google-genai",
+    "langchain-anthropic",
+    "openai",
+    "scikit-learn",
+    "numpy",
+    "tiktoken",
+    "python-dotenv",
 ]
 
 [project.scripts]
