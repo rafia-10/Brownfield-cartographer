@@ -89,6 +89,7 @@ class GraphMetadata(BaseModel):
     edge_count: int = 0
     circular_dependency_count: int = 0
     hub_modules: list[str] = Field(default_factory=list, description="Top modules by betweenness centrality")
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class ModuleGraph(BaseModel):
@@ -135,6 +136,7 @@ class LineageMetadata(BaseModel):
     edge_count: int = 0
     source_count: int = 0
     sink_count: int = 0
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class LineageGraph(BaseModel):
