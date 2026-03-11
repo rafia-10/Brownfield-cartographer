@@ -12,6 +12,9 @@ license = { text = "MIT" }
 dependencies = [
     "tree-sitter>=0.23,<0.25",
     "tree-sitter-python>=0.23,<0.25",
+    "tree-sitter-sql==0.3.5",
+    "tree-sitter-yaml",
+    "gitpython",
     "sqlglot>=23.0,<26.0",
     "networkx>=3.2",
     "typer[all]>=0.12",

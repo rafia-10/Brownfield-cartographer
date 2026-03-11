@@ -52,6 +52,13 @@ class Language(str, Enum):
     UNKNOWN = "unknown"
 
 
+class NodeType(str, Enum):
+    MODULE = "module"
+    DATASET = "dataset"
+    FUNCTION = "function"
+    TRANSFORMATION = "transformation"
+
+
 # ---------------------------------------------------------------------------
 # Module graph models
 # ---------------------------------------------------------------------------
@@ -68,6 +75,44 @@ class ModuleNode(BaseModel):
     imports: list[str] = Field(default_factory=list, description="Raw import strings found in the file")
     is_entry_point: bool = False
     loc: int = Field(default=0, description="Lines of code")
+    complexity: int = Field(default=0, description="Cyclomatic complexity or similar")
+    git_velocity: float = Field(default=0.0, description="Rate of change (commits per month)")
+    pagerank: float = Field(default=0.0, description="Centrality score")
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class FunctionNode(BaseModel):
+    """A specific function or method within a module."""
+
+    id: str = Field(..., description="Qualified name module.class.func")
+    name: str
+    module_id: str
+    loc: int = 0
+    complexity: int = 0
+    is_public: bool = True
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class DatasetNode(BaseModel):
+    """A data asset (Table, View, File)."""
+
+    id: str = Field(..., description="Qualified table name or path")
+    name: str
+    kind: TableKind = TableKind.TABLE
+    source_file: str | None = None
+    schema_definition: dict[str, str] = Field(default_factory=dict, description="Column names and types")
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class TransformationNode(BaseModel):
+    """A discrete data transformation (e.g. a SQL file or a specific Python function)."""
+
+    id: str
+    name: str
+    source_file: str
+    logic_type: Language = Language.SQL
+    inputs: list[str] = Field(default_factory=list, description="IDs of input datasets")
+    outputs: list[str] = Field(default_factory=list, description="IDs of output datasets")
     extra: dict[str, Any] = Field(default_factory=dict)
 
 

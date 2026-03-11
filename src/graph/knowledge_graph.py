@@ -104,8 +104,6 @@ class KnowledgeGraph:
     def hub_nodes(self, top_n: int = 10) -> list[str]:
         """
         Return the top-N nodes by betweenness centrality.
-
-        Falls back to in-degree ranking if the graph is too small.
         """
         if self.graph.number_of_nodes() < 2:
             return list(self.graph.nodes)[:top_n]
@@ -114,16 +112,54 @@ class KnowledgeGraph:
             centrality: dict[str, float] = nx.betweenness_centrality(
                 self.graph, normalized=True
             )
-            return sorted(centrality, key=centrality.get, reverse=True)[:top_n]  # type: ignore[arg-type]
-        except Exception:  # noqa: BLE001
-            # Fallback: sort by in-degree
+            return sorted(centrality, key=centrality.get, reverse=True)[:top_n]
+        except Exception:
             return sorted(
                 self.graph.nodes, key=lambda n: self.graph.in_degree(n), reverse=True
             )[:top_n]
 
+    def compute_pagerank(self) -> dict[str, float]:
+        """Compute PageRank scores for all nodes."""
+        if self.graph.number_of_nodes() < 2:
+            return {node: 1.0 for node in self.graph.nodes}
+        try:
+            return nx.pagerank(self.graph, alpha=0.85)
+        except Exception:
+            return {node: 0.0 for node in self.graph.nodes}
+
     def strongly_connected_components(self) -> list[list[str]]:
         """Return SCCs with more than one node (i.e. cycles)."""
         return [list(scc) for scc in nx.strongly_connected_components(self.graph) if len(scc) > 1]
+
+    def blast_radius(self, node_id: str, depth: int = 2) -> set[str]:
+        """
+        Find all downstream nodes affected by a change to node_id.
+        Uses BFS on the graph.
+        """
+        if node_id not in self.graph:
+            return set()
+        
+        affected = set()
+        # For lineage, edges are A -> B (data flows from A to B)
+        # So BFS forward finds downstream impact.
+        # For module deps, edges are A -> B (A depends on B)
+        # So for blast radius of B, we need to look at IN-EDGES (who depends on me).
+        # We'll detect the type based on the 'raw' attribute.
+        
+        is_module = isinstance(self.raw, ModuleGraph)
+        
+        if is_module:
+            # Who depends on me? (Reverse edges)
+            edges = nx.bfs_edges(self.graph, node_id, reverse=True, depth_limit=depth)
+            for _, v in edges:
+                affected.add(v)
+        else:
+            # Where does my data go? (Forward edges)
+            edges = nx.bfs_edges(self.graph, node_id, depth_limit=depth)
+            for _, v in edges:
+                affected.add(v)
+        
+        return affected
 
     def summary_stats(self) -> dict[str, Any]:
         """Return a dict of key metrics suitable for printing."""
@@ -140,27 +176,42 @@ class KnowledgeGraph:
     # ------------------------------------------------------------------
 
     def export_json(self, output_path: str | Path) -> Path:
-        """
-        Serialise the raw Pydantic graph model to a JSON file.
-
-        The output directory is created if it does not exist.
-
-        Returns
-        -------
-        Path
-            Absolute path of the written file.
-        """
+        """Serialise to a JSON file with metadata enrichment."""
         out = Path(output_path).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
 
         data = self.raw.model_dump(mode="json")
-        # Enrich metadata with live graph metrics
         stats = self.summary_stats()
-        data.setdefault("metadata", {})
-        data["metadata"]["hub_modules"] = stats["hub_nodes"]
-        data["metadata"]["node_count"] = stats["nodes"]
-        data["metadata"]["edge_count"] = stats["edges"]
+        pagerank = self.compute_pagerank()
 
-        out.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        log.info("Exported graph → %s (%d nodes, %d edges)", out, stats["nodes"], stats["edges"])
+        # Update node metadata with PageRank in the raw model if it's a ModuleNode
+        if isinstance(self.raw, ModuleGraph):
+            for node in data.get("nodes", []):
+                node_id = node.get("id")
+                if node_id in pagerank:
+                    node["pagerank"] = round(pagerank[node_id], 6)
+
+        data.setdefault("metadata", {})
+        data["metadata"].update({
+            "hub_modules": stats["hub_nodes"],
+            "node_count": stats["nodes"],
+            "edge_count": stats["edges"],
+        })
+
+        out.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return out
+
+    @classmethod
+    def load_json(cls, path: str | Path, graph_type: str = "module") -> "KnowledgeGraph":
+        """Load and validate a graph from JSON using Pydantic schemas."""
+        p = Path(path)
+        if not p.exists():
+            raise FileNotFoundError(f"Graph file not found: {p}")
+        
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if graph_type == "module":
+            raw = ModuleGraph.model_validate(data)
+            return cls.from_module_graph(raw)
+        else:
+            raw = LineageGraph.model_validate(data)
+            return cls.from_lineage_graph(raw)

@@ -123,6 +123,18 @@ class Hydrologist:
             if not _is_excluded(p, self.skip_dirs)
         )
 
+    def _discover_dbt(self) -> dict[str, Any]:
+        """Look for dbt_project.yml and related models."""
+        topology = {"models": [], "sources": []}
+        for p in self.repo_root.rglob("dbt_project.yml"):
+            if not _is_excluded(p, self.skip_dirs):
+                topology["project_file"] = str(p)
+                # Look for sources in the same or subdirs
+                for src_file in p.parent.rglob("*.yml"):
+                    if "sources" in src_file.name or "schema" in src_file.name:
+                        topology["sources"].append(str(src_file))
+        return topology
+
     # ------------------------------------------------------------------
     # Graph accumulators
     # ------------------------------------------------------------------
@@ -253,6 +265,27 @@ class Hydrologist:
         for nid, node in nodes.items():
             node.is_source = nid not in has_in
             node.is_sink = nid not in has_out
+
+    # ------------------------------------------------------------------
+    # Query helpers (Public)
+    # ------------------------------------------------------------------
+
+    def find_sources(self, graph: LineageGraph) -> list[str]:
+        """Return IDs of all source nodes."""
+        return [n.id for n in graph.nodes if n.is_source]
+
+    def find_sinks(self, graph: LineageGraph) -> list[str]:
+        """Return IDs of all sink nodes."""
+        return [n.id for n in graph.nodes if n.is_sink]
+
+    def get_blast_radius(self, graph: LineageGraph, node_id: str, depth: int = 2) -> list[str]:
+        """
+        Calculates downstream impact of a change to node_id.
+        Requires build KnowledgeGraph for traversal.
+        """
+        from src.graph.knowledge_graph import KnowledgeGraph
+        kg = KnowledgeGraph.from_lineage_graph(graph)
+        return list(kg.blast_radius(node_id, depth))
 
     # ------------------------------------------------------------------
     # Public entry point

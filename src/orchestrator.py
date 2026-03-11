@@ -13,6 +13,9 @@ Public API
 from __future__ import annotations
 
 import logging
+import shutil
+import tempfile
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -113,9 +116,32 @@ def run(
             "lineage_stats": dict,
         }
     """
-    repo = Path(repo_path).resolve()
+    # --- GitHub URL Support ---
+    is_temp_repo = False
+    repo_to_scan = repo_path
+    if str(repo_path).startswith(("http://", "https://", "git@")):
+        temp_dir = Path(tempfile.mkdtemp(prefix="cartographer_"))
+        if not quiet:
+            console.print(f"[cyan]Cloning remote repository...[/cyan]")
+        try:
+            subprocess.run(["git", "clone", str(repo_path), str(temp_dir)], check=True, capture_output=True)
+            repo_to_scan = temp_dir
+            is_temp_repo = True
+        except Exception as e:
+            console.print(f"[bold red]Error cloning repository:[/bold red] {e}")
+            raise
+
+    repo = Path(repo_to_scan).resolve()
+    if not repo.exists():
+        console.print(f"[bold red]Error:[/bold red] Repo path {repo} does not exist.")
+        return {}
+
     if not Path(output_dir).is_absolute():
-        out_dir = repo / output_dir
+        # If we cloned to temp, put outputs in current dir or specific path
+        if is_temp_repo:
+            out_dir = Path.cwd() / output_dir
+        else:
+            out_dir = repo / output_dir
     else:
         out_dir = Path(output_dir)
 
@@ -123,7 +149,7 @@ def run(
         console.print(
             Panel.fit(
                 f"[bold green]The Brownfield Cartographer[/bold green]\n"
-                f"[dim]Scanning:[/dim] {repo}",
+                f"[dim]Scanning:[/dim] {repo if not is_temp_repo else repo_path}",
                 border_style="green",
             )
         )
@@ -196,6 +222,13 @@ def run(
             f"\n[bold green]✅ Done![/bold green]  "
             f"Outputs in [underline]{out_dir}[/underline]"
         )
+
+    # ── Cleanup ────────────────────────────────────────────────────────
+    if is_temp_repo and repo.exists():
+        try:
+            shutil.rmtree(repo)
+        except Exception as e:
+            log.warning(f"Could not delete temp repo {repo}: {e}")
 
     return {
         "module_graph_path": module_path,

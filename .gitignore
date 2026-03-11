@@ -3,6 +3,7 @@
 *.egg-info/
 .venv/
 .cartography/
+.cartography_test/
 dist/
 build/
 .env

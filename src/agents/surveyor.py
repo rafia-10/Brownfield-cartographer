@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-
-from src.analyzers.tree_sitter_analyzer import AnalysisResult, analyze_file
+from src.analyzers.universal_analyzer import UniversalAnalyzer, UniversalResult
+from src.utils.git_utils import GitMetrics
 from src.models.nodes import (
     DependencyEdge,
     DependencyKind,
@@ -177,6 +177,8 @@ class Surveyor:
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
         self.skip_dirs = _SKIP_DIRS | (exclude_dirs or set())
+        self.git = GitMetrics(self.repo_root)
+        self.analyzer = UniversalAnalyzer()
 
     def _is_excluded(self, path: Path) -> bool:
         return any(part in self.skip_dirs for part in path.parts)
@@ -203,50 +205,51 @@ class Surveyor:
         nodes: dict[str, ModuleNode] = {}
         raw_edges: list[tuple[str, str, DependencyKind, int | None]] = []
 
-        # --- Python files ---
-        py_files = self._discover_python_files()
-        log.info("Surveyor: found %d Python files", len(py_files))
-
-        for py_file in py_files:
-            mod_id = _path_to_module_id(py_file, self.repo_root)
-            result: AnalysisResult = analyze_file(py_file)
-
-            if result.errors:
-                log.warning("Surveyor: %s — %s", py_file.name, "; ".join(result.errors))
+        # --- Analysis (Universal) ---
+        all_files = self._discover_python_files() + self._discover_yaml_files()
+        
+        for f in all_files:
+            mod_id = _path_to_module_id(f, self.repo_root)
+            
+            # Use universal analyzer for symbols/metadata
+            uni_res: UniversalResult = self.analyzer.analyze(f)
+            
+            # Use specialized python analyzer for imports/IO
+            if uni_res.language == "python":
+                py_res: AnalysisResult = analyze_file(f)
+                result_classes = py_res.classes
+                result_functions = py_res.functions
+                result_imports = [ir.module for ir in py_res.imports]
+                result_loc = py_res.loc
+                
+                for imp in py_res.imports:
+                    is_rel = imp.module.startswith(".")
+                    target_id = _resolve_import(imp.module, mod_id, is_rel)
+                    kind = (
+                        DependencyKind.WILDCARD
+                        if imp.is_wildcard
+                        else DependencyKind.FROM_IMPORT
+                        if imp.names
+                        else DependencyKind.IMPORT
+                    )
+                    raw_edges.append((mod_id, target_id, kind, imp.line))
+            else:
+                result_classes = []
+                result_functions = []
+                result_imports = []
+                result_loc = uni_res.loc
 
             node = ModuleNode(
                 id=mod_id,
-                path=str(py_file.relative_to(self.repo_root)),
-                language=Language.PYTHON,
-                classes=result.classes,
-                functions=result.functions,
-                imports=[ir.module for ir in result.imports],
-                loc=result.loc,
+                path=str(f.relative_to(self.repo_root)),
+                language=Language(uni_res.language),
+                classes=result_classes,
+                functions=result_functions + uni_res.symbols if uni_res.language == "yaml" else result_functions,
+                imports=result_imports,
+                loc=result_loc,
+                git_velocity=self.git.get_velocity(f),
             )
             nodes[mod_id] = node
-
-            for imp in result.imports:
-                is_rel = imp.module.startswith(".")
-                target_id = _resolve_import(imp.module, mod_id, is_rel)
-
-                kind = (
-                    DependencyKind.WILDCARD
-                    if imp.is_wildcard
-                    else DependencyKind.FROM_IMPORT
-                    if imp.names
-                    else DependencyKind.IMPORT
-                )
-                raw_edges.append((mod_id, target_id, kind, imp.line))
-
-        # --- YAML files (lightweight — just register as nodes) ---
-        for yaml_file in self._discover_yaml_files():
-            mod_id = _path_to_module_id(yaml_file, self.repo_root)
-            nodes[mod_id] = ModuleNode(
-                id=mod_id,
-                path=str(yaml_file.relative_to(self.repo_root)),
-                language=Language.YAML,
-                loc=sum(1 for _ in yaml_file.open(errors="replace")),
-            )
 
         # --- Deduplicate edges ---
         seen_edges: set[tuple[str, str]] = set()
@@ -267,6 +270,12 @@ class Surveyor:
             log.warning(
                 "Surveyor: %d circular dependency group(s) detected", len(cycles)
             )
+
+        # --- Dead code detection (module level) ---
+        import_targets = {e.target for e in edges}
+        for mod_id, node in nodes.items():
+            if mod_id not in import_targets and not node.is_entry_point:
+                node.extra["dead_code_candidate"] = True
 
         # --- Assemble graph ---
         metadata = GraphMetadata(

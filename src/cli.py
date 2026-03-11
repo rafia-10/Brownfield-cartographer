@@ -51,13 +51,9 @@ def _configure_logging(verbose: bool) -> None:
 
 @app.command()
 def scan(
-    repo_path: Path = typer.Argument(
+    repo_path: str = typer.Argument(
         ...,
-        help="Root directory of the repository to scan.",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        resolve_path=True,
+        help="Root directory or GitHub URL of the repository to scan.",
     ),
     output_dir: str = typer.Option(
         ".cartography",
@@ -95,16 +91,17 @@ def scan(
     from src.orchestrator import run  # local import to keep startup fast
 
     try:
-        result = run(
-            repo_path=repo_path,
-            output_dir=output_dir,
-            sql_dialect=dialect,
-            use_semantic=semantic,
-            run_archivist=archivist,
-            incremental=incremental,
-            quiet=False,
-        )
-    except Exception as exc:  # noqa: BLE001
+        with console.status("[bold blue]Mapping the codebase...[/bold blue]", spinner="dots"):
+            result = run(
+                repo_path=repo_path,
+                output_dir=output_dir,
+                sql_dialect=dialect,
+                use_semantic=semantic,
+                run_archivist=archivist,
+                incremental=incremental,
+                quiet=False,
+            )
+    except Exception as exc:
         console.print(f"[bold red]Error:[/bold red] {exc}")
         if verbose:
             raise
@@ -115,13 +112,9 @@ def scan(
 
 @app.command()
 def summary(
-    repo_path: Path = typer.Argument(
+    repo_path: str = typer.Argument(
         ...,
-        help="Root directory of the repository to inspect.",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        resolve_path=True,
+        help="Root directory or GitHub URL of the repository to inspect.",
     ),
     dialect: Optional[str] = typer.Option(
         None,
@@ -183,13 +176,9 @@ def summary(
 
 @app.command()
 def chat(
-    repo_path: Path = typer.Argument(
+    repo_path: str = typer.Argument(
         ...,
         help="Root directory of the repository.",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        resolve_path=True,
     ),
     output_dir: str = typer.Option(
         ".cartography",
