@@ -69,6 +69,21 @@ def scan(
         "--dialect", "-d",
         help="SQL dialect for sqlglot (e.g. bigquery, postgres, snowflake). Auto-detected if omitted.",
     ),
+    semantic: bool = typer.Option(
+        False,
+        "--semantic", "-s",
+        help="Enable LLM-powered semantic analysis (purpose detection, drift, domains).",
+    ),
+    archivist: bool = typer.Option(
+        False,
+        "--archivist", "-a",
+        help="Generate CODEBASE.md and audit trace log.",
+    ),
+    incremental: bool = typer.Option(
+        False,
+        "--incremental", "-i",
+        help="Re-analyze only modified files (git diff).",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
 ) -> None:
     """
@@ -84,6 +99,9 @@ def scan(
             repo_path=repo_path,
             output_dir=output_dir,
             sql_dialect=dialect,
+            use_semantic=semantic,
+            run_archivist=archivist,
+            incremental=incremental,
             quiet=False,
         )
     except Exception as exc:  # noqa: BLE001
@@ -163,9 +181,60 @@ def summary(
     raise typer.Exit(code=0)
 
 
-# ---------------------------------------------------------------------------
+@app.command()
+def chat(
+    repo_path: Path = typer.Argument(
+        ...,
+        help="Root directory of the repository.",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    output_dir: str = typer.Option(
+        ".cartography",
+        "--output", "-o",
+        help="Path where existing graphs live.",
+    ),
+):
+    """
+    Start a conversational session with the Navigator to explore the codebase.
+    """
+    from src.agents.navigator import Navigator
+    from src.models.nodes import ModuleGraph, LineageGraph
+    import json
+    
+    out_dir = repo_path / output_dir
+    mg_path = out_dir / "module_graph.json"
+    lg_path = out_dir / "lineage_graph.json"
+    
+    if not mg_path.exists() or not lg_path.exists():
+        console.print("[bold red]Error:[/bold red] Graphs not found. Run 'cartographer scan' first.")
+        raise typer.Exit(code=1)
+        
+    with open(mg_path) as f:
+        mg = ModuleGraph.model_validate(json.load(f))
+    with open(lg_path) as f:
+        lg = LineageGraph.model_validate(json.load(f))
+        
+    navigator = Navigator(repo_root=repo_path, module_graph=mg, lineage_graph=lg)
+    
+    console.print(f"\n[bold green]Welcome to the Navigator session for {repo_path.name}[/bold green]")
+    console.print("[dim]Type 'exit' to quit.[/dim]\n")
+    
+    while True:
+        question = typer.prompt("Navigator")
+        if question.lower() in ("exit", "quit"):
+            break
+        
+        with console.status("[blue]Thinking...[/blue]"):
+            answer = navigator.ask(question)
+        
+        console.print(f"\n[bold cyan]Navigator:[/bold cyan]\n{answer}\n")
+
+
+
 # Entry point
-# ---------------------------------------------------------------------------
 
 
 if __name__ == "__main__":
