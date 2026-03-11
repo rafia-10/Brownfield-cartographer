@@ -20,6 +20,7 @@ snowflake, spark, …).  Pass dialect=None to let sqlglot auto-detect.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
@@ -67,11 +68,13 @@ def _qualified_name(table_expr: exp.Table) -> str:
 
 
 def _source_tables(expression: exp.Expression) -> list[str]:
-    """Walk the expression tree and collect all FROM / JOIN tables."""
+    """Walk the expression tree and collect all FROM / JOIN tables, excluding CTE aliases."""
+    ctes = {cte.alias.lower() for cte in expression.find_all(exp.CTE) if cte.alias}
+    
     tables: list[str] = []
     for tbl in expression.find_all(exp.Table):
         name = _qualified_name(tbl)
-        if name:
+        if name and name.lower() not in ctes:
             tables.append(name)
     return _dedupe(tables)
 
@@ -85,6 +88,24 @@ def _dedupe(seq: list[str]) -> list[str]:
             seen.add(low)
             out.append(item)
     return out
+
+
+def _strip_jinja(text: str) -> str:
+    """
+    Primitive Jinja stripper to let sqlglot parse templated dbt files.
+    Replaces {{ ... }} with a dummy identifier to preserve syntax.
+    """
+    # 1. Handle {{ ref(...) }} - keep the identifier
+    text = re.sub(r"\{\{\s*ref\(['\"](\w+)['\"]\)\s*\}\}", r"\1", text)
+    # 2. Handle {{ source(..., ...) }} - keep the second arg
+    text = re.sub(r"\{\{\s*source\(['\"]\w+['\"]\s*,\s*['\"](\w+)['\"]\)\s*\}\}", r"\1", text)
+    # 3. Strip all other {{ ... }} expressions
+    text = re.sub(r"\{\{.*?\}\}", " JINJA_VAR ", text)
+    # 4. Strip all {% ... %} blocks (loops, if, set)
+    text = re.sub(r"\{%.*?%\}", " ", text, flags=re.DOTALL)
+    # 5. Generic cleanup of whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +204,7 @@ def analyze_file(
 
     try:
         sql_text = p.read_text(encoding="utf-8", errors="replace")
+        sql_text = _strip_jinja(sql_text)
     except OSError as exc:
         result.errors.append(f"Cannot read file: {exc}")
         return result
