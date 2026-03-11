@@ -5,3 +5,4 @@
 .cartography/
 dist/
 build/
+.env
