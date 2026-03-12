@@ -90,6 +90,7 @@ def run(
     run_archivist: bool = False,
     incremental: bool = False,
     quiet: bool = False,
+    summary_only: bool = False,
 ) -> dict[str, Any]:
     """
     Run the full Brownfield Cartographer pipeline.
@@ -180,7 +181,9 @@ def run(
 
     mg: ModuleGraph = surveyor.run()
     kg_module = KnowledgeGraph.from_module_graph(mg)
-    module_path = kg_module.export_json(out_dir / "module_graph.json")
+    module_path = None
+    if not summary_only:
+        module_path = kg_module.export_json(out_dir / "module_graph.json")
     # Sync hubs back to the model object so later agents see them
     mg.metadata.hub_modules = kg_module.hub_nodes(top_n=5)
 
@@ -196,7 +199,8 @@ def run(
         mg = semanticist.run(mg)
         # Re-export with semantic metadata
         kg_module = KnowledgeGraph.from_module_graph(mg)
-        module_path = kg_module.export_json(out_dir / "module_graph.json")
+        if not summary_only:
+            module_path = kg_module.export_json(out_dir / "module_graph.json")
 
     # ── Hydrologist ────────────────────────────────────────────────────
     if not quiet:
@@ -205,14 +209,16 @@ def run(
     hydrologist = Hydrologist(repo_root=repo, sql_dialect=sql_dialect)
     lg: LineageGraph = hydrologist.run()
     kg_lineage = KnowledgeGraph.from_lineage_graph(lg)
-    lineage_path = kg_lineage.export_json(out_dir / "lineage_graph.json")
+    lineage_path = None
+    if not summary_only:
+        lineage_path = kg_lineage.export_json(out_dir / "lineage_graph.json")
 
     if not quiet:
         console.print(_lineage_summary_table(kg_lineage, lg))
 
     # ── Archivist (Phase 4) ────────────────────────────────────────────
     codebase_md_path = None
-    if run_archivist:
+    if run_archivist and not summary_only:
         if not quiet:
             console.print("\n[yellow]📁 Running Archivist…[/yellow]")
         codebase_md_path = archivist.run(mg, lg)

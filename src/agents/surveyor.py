@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from src.analyzers.tree_sitter_analyzer import AnalysisResult, analyze_file
 from src.analyzers.universal_analyzer import UniversalAnalyzer, UniversalResult
 from src.utils.git_utils import GitMetrics
 from src.models.nodes import (

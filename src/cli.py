@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
@@ -129,47 +131,21 @@ def summary(
     """
     _configure_logging(verbose)
 
-    from src.agents.surveyor import Surveyor
-    from src.agents.hydrologist import Hydrologist
-    from src.graph.knowledge_graph import KnowledgeGraph
-    from rich.columns import Columns
-    from rich.panel import Panel
+    from src.orchestrator import run
 
     try:
-        surveyor = Surveyor(repo_root=repo_path)
-        mg = surveyor.run()
-        kg_m = KnowledgeGraph.from_module_graph(mg)
-
-        hydrologist = Hydrologist(repo_root=repo_path, sql_dialect=dialect)
-        lg = hydrologist.run()
-        kg_l = KnowledgeGraph.from_lineage_graph(lg)
-
-    except Exception as exc:  # noqa: BLE001
+        with console.status("[bold blue]Mapping the codebase...[/bold blue]", spinner="dots"):
+            run(
+                repo_path=repo_path,
+                sql_dialect=dialect,
+                quiet=False,
+                summary_only=True,
+            )
+    except Exception as exc:
         console.print(f"[bold red]Error:[/bold red] {exc}")
         if verbose:
             raise
         raise typer.Exit(code=1) from exc
-
-    m_stats = kg_m.summary_stats()
-    l_stats = kg_l.summary_stats()
-
-    console.print(Panel.fit(
-        f"[bold green]Brownfield Cartographer — Summary[/bold green]\n[dim]{repo_path}[/dim]",
-        border_style="green",
-    ))
-
-    console.print("\n[bold]Module Graph[/bold]")
-    console.print(f"  Modules  : {m_stats['nodes']}")
-    console.print(f"  Edges    : {m_stats['edges']}")
-    console.print(f"  Cycles   : {m_stats['cycles']}")
-    console.print(f"  Hubs     : {', '.join(m_stats['hub_nodes']) or '—'}")
-
-    console.print("\n[bold]Lineage Graph[/bold]")
-    console.print(f"  Data nodes : {l_stats['nodes']}")
-    console.print(f"  Edges      : {l_stats['edges']}")
-    console.print(f"  Sources    : {lg.metadata.source_count}")
-    console.print(f"  Sinks      : {lg.metadata.sink_count}")
-    console.print(f"  Hubs       : {', '.join(l_stats['hub_nodes']) or '—'}")
 
     raise typer.Exit(code=0)
 
@@ -227,4 +203,9 @@ def chat(
 
 
 if __name__ == "__main__":
+    import os
+    load_dotenv()
+    # Alias GEMINI_API_KEY to GOOGLE_API_KEY if present
+    if "GEMINI_API_KEY" in os.environ and "GOOGLE_API_KEY" not in os.environ:
+        os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
     app()
