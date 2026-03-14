@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
-from langchain_google_genai import ChatGoogleGenerativeAI
+from src.agents.factory import LLMFactory
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
@@ -126,20 +126,21 @@ def create_navigator_tools(module_graph: Dict[str, Any], lineage_graph: Dict[str
         except Exception as e:
             return f"Error reading file: {str(e)}"
 
-    return [search_modules, get_dependencies, get_lineage, read_file_segment, explain_module, get_blast_radius, vector_search]
+    tools = [search_modules, get_dependencies, get_lineage, read_file_segment, explain_module, get_blast_radius]
+    if llm_embeddings:
+        tools.append(vector_search)
+    return tools
 
 # --- Agent Build ---
 
 class Navigator:
-    def __init__(self, repo_root: str | Path, module_graph: ModuleGraph, lineage_graph: LineageGraph, model_name: str = "gemini-1.5-flash"):
+    def __init__(self, repo_root: str | Path, module_graph: ModuleGraph, lineage_graph: LineageGraph, model_name: Optional[str] = None):
         load_dotenv()
         self.repo_root = Path(repo_root).resolve()
         self.mg_dict = module_graph.model_dump(mode="json")
         self.lg_dict = lineage_graph.model_dump(mode="json")
         
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        from langchain_google_genai import GoogleGenerativeAIEmbeddings
-        self.llm_embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
+        self.llm_embeddings = LLMFactory.create_embeddings()
         
         # Load embeddings if they exist
         self.embeddings = {}
@@ -151,10 +152,7 @@ class Navigator:
                 log.warning(f"Navigator: Failed to load embeddings: {e}")
 
         self.tools = create_navigator_tools(self.mg_dict, self.lg_dict, self.repo_root, self.embeddings, self.llm_embeddings)
-        self.llm = ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=api_key
-        ).bind_tools(self.tools)
+        self.llm = LLMFactory.create_llm(model_name=model_name).bind_tools(self.tools)
         
         # Build Graph
         workflow = StateGraph(NavigatorState)
@@ -164,21 +162,8 @@ class Navigator:
             try:
                 response = self.llm.invoke(messages)
             except Exception as e:
-                if "NOT_FOUND" in str(e) or "404" in str(e):
-                    log.warning(f"Navigator: Primary model {self.llm.model} failed with 404. Attempting fallback...")
-                    # Try flash-latest
-                    try:
-                        fallback_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", google_api_key=api_key).bind_tools(self.tools)
-                        response = fallback_llm.invoke(messages)
-                        self.llm = fallback_llm # Permanent switch for this session
-                    except Exception as e2:
-                        log.warning(f"Navigator: Fallback to flash-latest failed. Trying gemini-1.5-pro...")
-                        # Final try: Pro
-                        fallback_llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=api_key).bind_tools(self.tools)
-                        response = fallback_llm.invoke(messages)
-                        self.llm = fallback_llm
-                else:
-                    raise e
+                log.error(f"Navigator: Model call failed: {e}. Check API keys and provider settings.")
+                raise e
             return {"messages": [response]}
 
         workflow.add_node("agent", call_model)
@@ -198,18 +183,22 @@ class Navigator:
         self.app = workflow.compile()
 
     def ask(self, question: str) -> str:
-        system_msg = SystemMessage(content="""You are the Navigator, a senior code architect agent.
-Your goal is to help developers explore the codebase using the tools provided.
+        tool_names = [t.name for t in self.tools]
+        system_content = f"""You are the Navigator, a senior code architect agent.
+Your goal is to help developers explore the codebase using the tools provided: {', '.join(tool_names)}.
 Always aim for 100% accuracy and provide evidence for your claims.
 
-Key Instructions:
-1. Use 'vector_search' to find relevant code when the user's query is conceptual.
-2. Use 'explain_module' to check for business purpose and Documentation Drift.
-3. Use 'get_lineage' to explain data flow or table dependencies.
-4. IMPORTANT: Always use 'read_file_segment' to cite specific code lines when explaining logic.
-5. If you find Documentation Drift, explicitly mention the Drift Evidence.
-
-Always cite files and line numbers where possible.""")
+CRITICAL: 
+- Use the available tools to answer questions.
+- If the user's query is conceptual, use 'search_modules' (or 'vector_search' if available) to find relevant code.
+- Always use 'read_file_segment' to cite specific code lines when explaining logic.
+- If you find Documentation Drift, explicitly mention the Drift Evidence.
+- Cite files and line numbers for every significant claim.
+"""
+        # Add tool-calling nudge for Groq/Llama
+        system_content += "\nIMPORTANT: You MUST invoke tools using the standard JSON tool-calling format. Do not use custom XML tags or <function> tags."
+        
+        system_msg = SystemMessage(content=system_content)
         
         state = {
             "messages": [system_msg, HumanMessage(content=question)],

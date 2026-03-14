@@ -19,8 +19,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import os
 from dotenv import load_dotenv
-
 import typer
 from rich.console import Console
 from rich.logging import RichHandler
@@ -201,7 +201,7 @@ def query(
     with open(lg_path) as f:
         lg = LineageGraph.model_validate(json.load(f))
         
-    model_name = os.getenv("CARTOGRAPHER_MODEL", "gemini-1.5-flash")
+    model_name = os.getenv("CARTOGRAPHER_MODEL")
     navigator = Navigator(repo_root=repo_dir, module_graph=mg, lineage_graph=lg, model_name=model_name)
     
     console.print(f"\n[bold green]Welcome to the Navigator session for {repo_dir.name}[/bold green]")
@@ -250,7 +250,7 @@ def vector_search(
     with open(lg_path) as f:
         lg = LineageGraph.model_validate(json.load(f))
         
-    model_name = os.getenv("CARTOGRAPHER_MODEL", "gemini-1.5-flash")
+    model_name = os.getenv("CARTOGRAPHER_MODEL")
     navigator = Navigator(repo_root=repo_dir, module_graph=mg, lineage_graph=lg, model_name=model_name)
     results = navigator.ask(f"Use vector_search to find: {query}")
     console.print(Panel(results, title=f"Concept Search: {query}", border_style="magenta"))

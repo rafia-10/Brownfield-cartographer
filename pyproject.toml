@@ -22,13 +22,13 @@ dependencies = [
     "pydantic>=2.0",
     "langgraph>=0.0.10",
     "langchain-core",
-    "langchain-google-genai",
-    "langchain-anthropic",
+    "langchain-groq",
     "openai",
     "scikit-learn",
     "numpy",
     "tiktoken",
     "python-dotenv",
+    "langchain-groq",
 ]
 
 [project.scripts]

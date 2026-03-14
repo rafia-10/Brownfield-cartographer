@@ -19,10 +19,10 @@ from typing import Any, List, Optional
 
 import numpy as np
 from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.messages import HumanMessage
 from sklearn.cluster import KMeans
 
+from src.agents.factory import LLMFactory
 from src.models.nodes import Language, ModuleGraph, ModuleNode
 from src.utils.llm_budget import budget
 
@@ -46,18 +46,12 @@ class Semanticist:
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
         self.output_dir = Path(output_dir).resolve()
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        
-        if not self.api_key:
-            log.error("GOOGLE_API_KEY or GEMINI_API_KEY not found in environment or provided.")
-        else:
-            log.info(f"Semanticist: LLM initialized with key starting: {self.api_key[:8]}...")
+        # LLMFactory handles key loading from .env
             
-        env_model = os.getenv("CARTOGRAPHER_MODEL", "gemini-1.5-flash")
-        self.bulk_llm = ChatGoogleGenerativeAI(model=bulk_model or env_model, google_api_key=self.api_key)
-        self.synthesis_llm = ChatGoogleGenerativeAI(model=synthesis_model or env_model, google_api_key=self.api_key)
-        # Use a more modern embedding model
-        self.embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.api_key)
+        self.bulk_llm = LLMFactory.create_llm(model_name=bulk_model)
+        self.synthesis_llm = LLMFactory.create_llm(model_name=synthesis_model)
+        # Use local embeddings for Groq-only mode
+        self.embeddings = LLMFactory.create_embeddings()
 
     def generate_purpose_statement(self, node: ModuleNode, content: str) -> tuple[str, bool]:
         """
@@ -121,6 +115,12 @@ Evidence: [If Drift is Yes, provide specific line numbers or 2-3 word snippets a
         Updates the nodes' 'extra' dictionary with domain labels.
         """
         purposes = [n.extra.get("purpose", "") for n in nodes]
+        if not self.embeddings:
+            log.warning("Semanticist: Embeddings disabled. Skipping clustering.")
+            for node in nodes:
+                node.extra["domain"] = "Core"
+            return ["Core"] * len(nodes)
+            
         if not any(purposes) or len(nodes) < 2:
             return ["Core"] * len(nodes)
             
