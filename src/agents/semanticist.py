@@ -101,8 +101,18 @@ Evidence: [If Drift is Yes, provide specific line numbers or 2-3 word snippets a
                     
             return purpose, drift, evidence
         except Exception as e:
-            log.error(f"Error generating purpose for {node.id}: {str(e)}")
-            return "Analysis failed.", False, None
+            log.error(f"Error generating purpose for {node.id}: {str(e)}. Using heuristic fallback.")
+            
+            # --- Heuristic Fallback: Extract first 3 non-empty lines ---
+            lines = content.split("\n")
+            non_empty = [(i+1, l.strip()) for i, l in enumerate(lines) if l.strip()]
+            snippets = non_empty[:3]
+            purpose = " ".join([s[1].lstrip("#").lstrip("/").lstrip("*").strip() for s in snippets])
+            if len(purpose) > 150:
+                purpose = purpose[:147] + "..."
+            
+            citation = f" (Lines {snippets[0][0]}-{snippets[-1][0]})" if snippets else ""
+            return f"[Heuristic]{citation} {purpose}", False, None
 
     def cluster_into_domains(self, nodes: List[ModuleNode]) -> List[str]:
         """
@@ -128,8 +138,12 @@ Evidence: [If Drift is Yes, provide specific line numbers or 2-3 word snippets a
             for i in range(k):
                 cluster_purposes = [purposes[j] for j in range(len(nodes)) if labels[j] == i]
                 summary_prompt = f"Summarize these purpose statements into a single 1-2 word domain name: {' | '.join(cluster_purposes[:5])}"
-                resp = self.synthesis_llm.invoke([HumanMessage(content=summary_prompt)])
-                domain_names.append(resp.content.strip().replace('"', ''))
+                try:
+                    resp = self.synthesis_llm.invoke([HumanMessage(content=summary_prompt)])
+                    domain_names.append(resp.content.strip().replace('"', ''))
+                except Exception as e:
+                    log.warning(f"Semanticist: LLM failed to label domain {i}: {e}. Using fallback.")
+                    domain_names.append(f"Domain {i}")
                 
             final_labels = [domain_names[label] for label in labels]
             for node, label in zip(nodes, final_labels):
@@ -144,29 +158,93 @@ Evidence: [If Drift is Yes, provide specific line numbers or 2-3 word snippets a
         """
         Provides a synthesis of the codebase for a new developer.
         """
-        # Prepare a high-level summary of the graph
+        # Prepare a detailed summary of the semantic findings
         summary = f"Codebase has {mg.metadata.node_count} modules and {mg.metadata.edge_count} dependencies.\n"
-        summary += f"Hub modules: {', '.join(mg.metadata.hub_modules)}\n"
         
-        prompt = f"""You are an Expert Software Architect. Based on this codebase summary, 
-answer the 'Five FDE Questions' to help a new engineer on their first day:
-1. What is the business value of this system?
-2. Where is the core domain logic located?
-3. What are the highest-risk modules (traps)?
-4. How does data move through the system (at a high level)?
-5. What is the state of the documentation?
+        # 1. Hub context
+        summary += "\n### Core Hubs (High Centrality):\n"
+        for mod_id in mg.metadata.hub_modules[:5]:
+            node = next((n for n in mg.nodes if n.id == mod_id), None)
+            if node:
+                purpose = node.extra.get("purpose", "No purpose found.")
+                summary += f"- `{mod_id}`: {purpose}\n"
+        
+        # 2. Domain context
+        domains = {}
+        for n in mg.nodes:
+            d = n.extra.get("domain", "Unknown")
+            domains.setdefault(d, []).append(n.id)
+        
+        summary += "\n### Discovered Business Domains:\n"
+        for domain, mods in domains.items():
+            summary += f"- **{domain}**: Includes {', '.join(mods[:3])}...\n"
+            
+        # 3. Drift context (Citations!)
+        drifts = [n for n in mg.nodes if n.extra.get("doc_drift")]
+        if drifts:
+            summary += "\n### Documentation Drift (High Risk):\n"
+            for n in drifts[:5]:
+                evidence = n.extra.get("drift_evidence", "No snippet.")
+                summary += f"- `{n.id}` (Path: `{n.path}`): Evidence: \"{evidence}\"\n"
 
-Summary:
+        prompt = f"""You are an Expert Software Architect performing a 'Day One' audit for a new FDE.
+Based on the following semantic and structural analysis, answer the 'Five FDE Questions' with high precision.
+
+CRITICAL: 
+- Provide explicit file citations/line snippets for your claims.
+- If you find documentation drift, call it out as a TRAP.
+- Be technical but business-aligned.
+
+Target Analysis Context:
 {summary}
 
-Analysis:
+Analysis Output format:
+# Five Day-One Questions
+[Your synthesis...]
 """
         try:
             response = self.synthesis_llm.invoke([HumanMessage(content=prompt)])
             return response.content
         except Exception as e:
-            log.error(f"Error answering day one questions: {e}")
-            return "Could not synthesize report."
+            log.error(f"Error answering day one questions: {e}. Falling back to template-based synthesis.")
+            
+            # --- Robust Fallback Report ---
+            fallback = "# Five Day-One Questions (Safe Mode)\n\n"
+            
+            fallback += "### 1. What is the business value of this system?\n"
+            fallback += f"The system consists of {mg.metadata.node_count} modules focused on the following key hubs:\n"
+            for mod_id in mg.metadata.hub_modules[:3]:
+                node = next((n for n in mg.nodes if n.id == mod_id), None)
+                if node:
+                    fallback += f"- `{mod_id}`: {node.extra.get('purpose', 'Core architectural component')}\n"
+            fallback += "\n"
+            
+            fallback += "### 2. Where is the core domain logic located?\n"
+            fallback += f"Logic is distributed across {len(domains)} primary domains:\n"
+            for dom, mods in list(domains.items())[:3]:
+                fallback += f"- **{dom}**: {', '.join(mods[:2])}...\n"
+            fallback += "\n"
+            
+            fallback += "### 3. What are the highest-risk modules (traps)?\n"
+            drift_nodes = [n for n in mg.nodes if n.extra.get("doc_drift")]
+            if drift_nodes:
+                fallback += "⚠️ **TRAP: Documentation Decay** - The following modules have logic differing from their documentation:\n"
+                for n in drift_nodes[:3]:
+                    fallback += f"- `{n.id}` (See: `{n.path}`): \"{n.extra.get('drift_evidence', 'Logic differs from comments')}\"\n"
+            else:
+                fallback += "No major documentation traps detected in this scan.\n"
+            fallback += "\n"
+            
+            fallback += "### 4. How does data move through the system?\n"
+            fallback += "Data movement is governed by the structural dependencies between modules. Use `cartographer query` to trace specific lineage paths.\n\n"
+            
+            fallback += "### 5. What is the state of the documentation?\n"
+            if drift_nodes:
+                fallback += f"Moderate documentation decay. {len(drift_nodes)} modules flagged for drift. Rely on the actual code logic in the cited files.\n"
+            else:
+                fallback += "Documentation appears consistent with the current code state.\n"
+                
+            return fallback
 
     def _get_file_hash(self, path: Path) -> str:
         """Simple content hash to detect changes."""
