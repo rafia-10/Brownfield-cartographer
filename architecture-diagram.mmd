@@ -1,0 +1,82 @@
+---
+config:
+  layout: fixed
+---
+flowchart LR
+    subgraph EntryLayer["Entry Layer"]
+        User["👤 User"]
+        CLI["CLI Interface"]
+    end
+
+    subgraph InputLayer["Input Layer"]
+        Repo["Repository"]
+        PyFiles["Python Files"]
+        SqlFiles["SQL Files"]
+        YamlFiles["YAML/Config"]
+    end
+
+    subgraph AnalyzerLayer["Analyzers"]
+        PyAnalyzer["Python Analyzer<br/>(AST, functions,<br/>classes, imports, I/O)"]
+        SqlAnalyzer["SQL Analyzer<br/>(table lineage)"]
+    end
+
+    subgraph AgentLayer["Agent Layer"]
+        Surveyor["🗺️ Surveyor Agent<br/>(module dependency<br/>graph)"]
+        Hydrologist["💧 Hydrologist Agent<br/>(data lineage)"]
+        Cartographer["🧭 Cartographer Agent<br/>(merge graphs)"]
+        Archivist["📚 Archivist Agent<br/>(store artifacts)"]
+        Semanticist["🧠 Semanticist Agent<br/>(semantic relationships)"]
+    end
+
+    subgraph GraphLayer["Graph Layer"]
+        ModuleGraph["📊 ModuleGraph<br/>(code dependencies)"]
+        LineageGraph["🔗 LineageGraph<br/>(data lineage)"]
+        KnowledgeGraph["🌐 Knowledge Graph<br/>(structural + semantic)"]
+    end
+
+    subgraph OutputLayer["Outputs"]
+        JsonArtifacts["📁 JSON Artifacts"]
+        CliTables["📋 CLI Summary Tables"]
+        Insights["💡 Architecture Insights<br/>/Metrics"]
+    end
+
+    User -->|queries| CLI
+    CLI -->|triggers| Orchestrator{"🎯 Orchestrator<br/>(central controller)"}
+    Orchestrator -->|analyzes| Repo
+    Repo -->|extracts| PyFiles
+    Repo -->|extracts| SqlFiles
+    Repo -->|extracts| YamlFiles
+
+    PyFiles -->|parses| PyAnalyzer
+    SqlFiles -->|parses| SqlAnalyzer
+    YamlFiles -->|processes| PyAnalyzer
+
+    PyAnalyzer -->|imports & I/O| Surveyor
+    PyAnalyzer -->|imports & I/O| Hydrologist
+    SqlAnalyzer -->|table lineage| Hydrologist
+
+    Surveyor -->|builds| ModuleGraph
+    Hydrologist -->|detects| LineageGraph
+    Cartographer -->|merges| KnowledgeGraph
+    Semanticist -->|enriches| KnowledgeGraph
+
+    ModuleGraph -->|input| Cartographer
+    LineageGraph -->|input| Cartographer
+    KnowledgeGraph -->|input| Archivist
+
+    Archivist -->|stores| JsonArtifacts
+    Cartographer -->|generates| CliTables
+    Semanticist -->|computes| Insights
+
+    JsonArtifacts -->|delivers| OutputLayer
+    CliTables -->|delivers| OutputLayer
+    Insights -->|delivers| OutputLayer
+
+    %% Muted color scheme
+    style EntryLayer fill:#f2f2f2,stroke:#999,color:#000,stroke-width:2px
+    style InputLayer fill:#e6e6e6,stroke:#999,color:#000,stroke-width:2px
+    style AnalyzerLayer fill:#dddddd,stroke:#999,color:#000,stroke-width:2px
+    style AgentLayer fill:#cccccc,stroke:#888,color:#000,stroke-width:2px
+    style GraphLayer fill:#e0e0e0,stroke:#777,color:#000,stroke-width:2px
+    style OutputLayer fill:#f5f5f5,stroke:#999,color:#000,stroke-width:2px
+    style Orchestrator fill:#bfbfbf,stroke:#666,color:#000,stroke-width:2px2

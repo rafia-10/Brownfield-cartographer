@@ -201,7 +201,8 @@ def query(
     with open(lg_path) as f:
         lg = LineageGraph.model_validate(json.load(f))
         
-    navigator = Navigator(repo_root=repo_dir, module_graph=mg, lineage_graph=lg)
+    model_name = os.getenv("CARTOGRAPHER_MODEL", "gemini-1.5-flash")
+    navigator = Navigator(repo_root=repo_dir, module_graph=mg, lineage_graph=lg, model_name=model_name)
     
     console.print(f"\n[bold green]Welcome to the Navigator session for {repo_dir.name}[/bold green]")
     console.print("[dim]Type 'exit' to quit. Ask about lineage, purpose, or citations.[/dim]\n")
@@ -249,7 +250,8 @@ def vector_search(
     with open(lg_path) as f:
         lg = LineageGraph.model_validate(json.load(f))
         
-    navigator = Navigator(repo_root=repo_dir, module_graph=mg, lineage_graph=lg)
+    model_name = os.getenv("CARTOGRAPHER_MODEL", "gemini-1.5-flash")
+    navigator = Navigator(repo_root=repo_dir, module_graph=mg, lineage_graph=lg, model_name=model_name)
     results = navigator.ask(f"Use vector_search to find: {query}")
     console.print(Panel(results, title=f"Concept Search: {query}", border_style="magenta"))
 

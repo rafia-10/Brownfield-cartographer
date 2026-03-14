@@ -40,8 +40,8 @@ class Semanticist:
         self,
         repo_root: str | Path,
         output_dir: str | Path = ".cartography",
-        bulk_model: str = "gemini-1.5-flash",
-        synthesis_model: str = "gemini-1.5-flash", # Using flash for both as default if pro not configured
+        bulk_model: Optional[str] = None,
+        synthesis_model: Optional[str] = None, 
         api_key: Optional[str] = None
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
@@ -53,8 +53,9 @@ class Semanticist:
         else:
             log.info(f"Semanticist: LLM initialized with key starting: {self.api_key[:8]}...")
             
-        self.bulk_llm = ChatGoogleGenerativeAI(model=bulk_model, google_api_key=self.api_key)
-        self.synthesis_llm = ChatGoogleGenerativeAI(model=synthesis_model, google_api_key=self.api_key)
+        env_model = os.getenv("CARTOGRAPHER_MODEL", "gemini-1.5-flash")
+        self.bulk_llm = ChatGoogleGenerativeAI(model=bulk_model or env_model, google_api_key=self.api_key)
+        self.synthesis_llm = ChatGoogleGenerativeAI(model=synthesis_model or env_model, google_api_key=self.api_key)
         # Use a more modern embedding model
         self.embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=self.api_key)
 

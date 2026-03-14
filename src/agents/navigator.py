@@ -131,7 +131,7 @@ def create_navigator_tools(module_graph: Dict[str, Any], lineage_graph: Dict[str
 # --- Agent Build ---
 
 class Navigator:
-    def __init__(self, repo_root: str | Path, module_graph: ModuleGraph, lineage_graph: LineageGraph):
+    def __init__(self, repo_root: str | Path, module_graph: ModuleGraph, lineage_graph: LineageGraph, model_name: str = "gemini-1.5-flash"):
         load_dotenv()
         self.repo_root = Path(repo_root).resolve()
         self.mg_dict = module_graph.model_dump(mode="json")
@@ -152,7 +152,7 @@ class Navigator:
 
         self.tools = create_navigator_tools(self.mg_dict, self.lg_dict, self.repo_root, self.embeddings, self.llm_embeddings)
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model=model_name,
             google_api_key=api_key
         ).bind_tools(self.tools)
         
@@ -161,7 +161,24 @@ class Navigator:
         
         def call_model(state: NavigatorState):
             messages = state['messages']
-            response = self.llm.invoke(messages)
+            try:
+                response = self.llm.invoke(messages)
+            except Exception as e:
+                if "NOT_FOUND" in str(e) or "404" in str(e):
+                    log.warning(f"Navigator: Primary model {self.llm.model} failed with 404. Attempting fallback...")
+                    # Try flash-latest
+                    try:
+                        fallback_llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest", google_api_key=api_key).bind_tools(self.tools)
+                        response = fallback_llm.invoke(messages)
+                        self.llm = fallback_llm # Permanent switch for this session
+                    except Exception as e2:
+                        log.warning(f"Navigator: Fallback to flash-latest failed. Trying gemini-1.5-pro...")
+                        # Final try: Pro
+                        fallback_llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro", google_api_key=api_key).bind_tools(self.tools)
+                        response = fallback_llm.invoke(messages)
+                        self.llm = fallback_llm
+                else:
+                    raise e
             return {"messages": [response]}
 
         workflow.add_node("agent", call_model)
