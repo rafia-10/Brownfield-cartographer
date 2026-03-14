@@ -181,6 +181,7 @@ class LineageMetadata(BaseModel):
     edge_count: int = 0
     source_count: int = 0
     sink_count: int = 0
+    hub_tables: list[str] = Field(default_factory=list, description="Top data nodes by betweenness centrality")
     extra: dict[str, Any] = Field(default_factory=dict)
 
 

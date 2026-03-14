@@ -218,6 +218,42 @@ def query(
 
 
 @app.command()
+def vector_search(
+    repo_path: str = typer.Argument(..., help="Path or URL to the repository."),
+    query: str = typer.Argument(..., help="Conceptual query (e.g. 'payment processing')."),
+    output_dir: str = typer.Option(".cartography", "--output", "-o"),
+):
+    """
+    Conceptual search using semantic embeddings. Use after 'analyze -s'.
+    """
+    from src.graph.knowledge_graph import KnowledgeGraph
+    from src.models.nodes import ModuleGraph, LineageGraph
+    from src.agents.navigator import Navigator
+    import json
+    
+    if str(repo_path).startswith(("http://", "https://", "git@")):
+        repo_dir = Path.cwd()
+    else:
+        repo_dir = Path(repo_path).resolve()
+
+    out_dir = repo_dir / output_dir
+    mg_path = out_dir / "module_graph.json"
+    lg_path = out_dir / "lineage_graph.json"
+    
+    if not mg_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Analysis results not found at {out_dir}. Run 'analyze -s' first.")
+        raise typer.Exit(code=1)
+        
+    with open(mg_path) as f:
+        mg = ModuleGraph.model_validate(json.load(f))
+    with open(lg_path) as f:
+        lg = LineageGraph.model_validate(json.load(f))
+        
+    navigator = Navigator(repo_root=repo_dir, module_graph=mg, lineage_graph=lg)
+    results = navigator.ask(f"Use vector_search to find: {query}")
+    console.print(Panel(results, title=f"Concept Search: {query}", border_style="magenta"))
+
+@app.command()
 def blast_radius(
     repo_path: str = typer.Argument(..., help="Path or URL to the repository."),
     module_id: str = typer.Argument(..., help="Module ID to analyze."),

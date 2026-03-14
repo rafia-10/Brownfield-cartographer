@@ -61,7 +61,7 @@ class Semanticist:
     def generate_purpose_statement(self, node: ModuleNode, content: str) -> tuple[str, bool]:
         """
         Generates a purpose statement and checks for documentation drift.
-        Returns (purpose_statement, drift_detected).
+        Returns (purpose_statement, drift_detected, drift_evidence).
         """
         prompt = f"""Analyze the following code and provide a 2-3 sentence purpose statement 
 that explains its business function (not technical implementation details).
@@ -72,7 +72,8 @@ Code:
 
 Output format:
 Purpose: [statement]
-Drift: [Yes/No] - [brief explanation if Yes]
+Drift: [Yes/No]
+Evidence: [If Drift is Yes, provide specific line numbers or 2-3 word snippets as evidence. Otherwise 'None'.]
 """
         try:
             tokens_in = budget.count_tokens(prompt)
@@ -85,16 +86,23 @@ Drift: [Yes/No] - [brief explanation if Yes]
             # Parse response
             purpose = ""
             drift = False
-            for line in response_text.split("\n"):
+            evidence = None
+            
+            lines = response_text.split("\n")
+            for i, line in enumerate(lines):
                 if line.startswith("Purpose:"):
                     purpose = line.replace("Purpose:", "").strip()
                 if line.startswith("Drift:"):
                     drift = "Yes" in line
+                if line.startswith("Evidence:"):
+                    evidence = line.replace("Evidence:", "").strip()
+                    if evidence.lower() == "none":
+                        evidence = None
                     
-            return purpose, drift
+            return purpose, drift, evidence
         except Exception as e:
             log.error(f"Error generating purpose for {node.id}: {str(e)}")
-            return "Analysis failed.", False
+            return "Analysis failed.", False, None
 
     def cluster_into_domains(self, nodes: List[ModuleNode]) -> List[str]:
         """
@@ -201,23 +209,35 @@ Analysis:
                     continue
 
                 content = file_path.read_text(errors="replace")
-                purpose, drift = self.generate_purpose_statement(node, content)
+                purpose, drift, evidence = self.generate_purpose_statement(node, content)
                 node.extra["purpose"] = purpose
                 node.extra["doc_drift"] = drift
+                node.extra["drift_evidence"] = evidence
                 
                 new_index[node.id] = {
                     "id": node.id,
                     "path": node.path,
                     "hash": file_hash,
                     "purpose": purpose,
-                    "doc_drift": drift
+                    "doc_drift": drift,
+                    "drift_evidence": evidence
                 }
         
         # Save updated index
         try:
-            import json
             self.output_dir.mkdir(parents=True, exist_ok=True)
             index_path.write_text(json.dumps(new_index, indent=2))
+            
+            # Also save embeddings separately for Vector Search in Navigator
+            embedding_data = {}
+            for node in mg.nodes:
+                if "purpose" in node.extra:
+                    emb = self.embeddings.embed_query(node.extra["purpose"])
+                    embedding_data[node.id] = list(emb)
+            
+            emb_path = self.output_dir / "semantic_embeddings.json"
+            emb_path.write_text(json.dumps(embedding_data))
+            log.info(f"Semanticist: Saved {len(embedding_data)} embeddings to {emb_path}")
         except Exception as e:
             log.warning(f"Semanticist: Failed to save index: {e}")
 

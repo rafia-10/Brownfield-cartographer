@@ -13,9 +13,10 @@ import logging
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Sequence, TypedDict, Union
 
+import numpy as np
 from dotenv import load_dotenv
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END
@@ -36,7 +37,34 @@ class NavigatorState(TypedDict):
 
 # --- Tools ---
 
-def create_navigator_tools(module_graph: Dict[str, Any], lineage_graph: Dict[str, Any], repo_root: Path):
+def create_navigator_tools(module_graph: Dict[str, Any], lineage_graph: Dict[str, Any], repo_root: Path, embeddings: Dict[str, List[float]], llm_embeddings: Any):
+    
+    @tool
+    def vector_search(query: str) -> str:
+        """Find modules conceptually related to a natural language query using semantic embeddings."""
+        if not embeddings:
+            return "Vector search index is empty. Run 'analyze' first."
+        
+        try:
+            query_emb = np.array(llm_embeddings.embed_query(query))
+            scores = []
+            
+            for mod_id, mod_emb in embeddings.items():
+                mod_emb_vec = np.array(mod_emb)
+                similarity = np.dot(query_emb, mod_emb_vec) / (np.linalg.norm(query_emb) * np.linalg.norm(mod_emb_vec))
+                scores.append((mod_id, similarity))
+            
+            # Sort by similarity
+            scores.sort(key=lambda x: x[1], reverse=True)
+            top_3 = scores[:3]
+            
+            results = []
+            for mod_id, score in top_3:
+                results.append(f"• {mod_id} (Similarity: {score:.2f})")
+            
+            return "Top concept matches:\n" + "\n".join(results)
+        except Exception as e:
+            return f"Error performing vector search: {str(e)}"
     
     @tool
     def search_modules(query: str) -> str:
@@ -98,7 +126,7 @@ def create_navigator_tools(module_graph: Dict[str, Any], lineage_graph: Dict[str
         except Exception as e:
             return f"Error reading file: {str(e)}"
 
-    return [search_modules, get_dependencies, get_lineage, read_file_segment, explain_module, get_blast_radius]
+    return [search_modules, get_dependencies, get_lineage, read_file_segment, explain_module, get_blast_radius, vector_search]
 
 # --- Agent Build ---
 
@@ -110,8 +138,19 @@ class Navigator:
         self.lg_dict = lineage_graph.model_dump(mode="json")
         
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        self.llm_embeddings = GoogleGenerativeAIEmbeddings(model="models/text-embedding-004", google_api_key=api_key)
         
-        self.tools = create_navigator_tools(self.mg_dict, self.lg_dict, self.repo_root)
+        # Load embeddings if they exist
+        self.embeddings = {}
+        emb_path = self.repo_root / ".cartography" / "semantic_embeddings.json"
+        if emb_path.exists():
+            try:
+                self.embeddings = json.loads(emb_path.read_text())
+            except Exception as e:
+                log.warning(f"Navigator: Failed to load embeddings: {e}")
+
+        self.tools = create_navigator_tools(self.mg_dict, self.lg_dict, self.repo_root, self.embeddings, self.llm_embeddings)
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-1.5-flash",
             google_api_key=api_key
@@ -142,8 +181,21 @@ class Navigator:
         self.app = workflow.compile()
 
     def ask(self, question: str) -> str:
+        system_msg = SystemMessage(content="""You are the Navigator, a senior code architect agent.
+Your goal is to help developers explore the codebase using the tools provided.
+Always aim for 100% accuracy and provide evidence for your claims.
+
+Key Instructions:
+1. Use 'vector_search' to find relevant code when the user's query is conceptual.
+2. Use 'explain_module' to check for business purpose and Documentation Drift.
+3. Use 'get_lineage' to explain data flow or table dependencies.
+4. IMPORTANT: Always use 'read_file_segment' to cite specific code lines when explaining logic.
+5. If you find Documentation Drift, explicitly mention the Drift Evidence.
+
+Always cite files and line numbers where possible.""")
+        
         state = {
-            "messages": [HumanMessage(content=question)],
+            "messages": [system_msg, HumanMessage(content=question)],
             "repo_path": str(self.repo_root),
             "module_graph": self.mg_dict,
             "lineage_graph": self.lg_dict

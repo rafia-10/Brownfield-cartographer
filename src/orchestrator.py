@@ -162,6 +162,7 @@ def run(
         console.print("\n[cyan]🔭 Running Surveyor…[/cyan]")
 
     surveyor = Surveyor(repo_root=repo)
+    archivist.log_trace("Surveyor", "File Discovery", {"extensions": [".py", ".sql", ".yaml"]})
     
     # Handle incremental mode
     if incremental:
@@ -186,6 +187,7 @@ def run(
         module_path = kg_module.export_json(out_dir / "module_graph.json")
     # Sync hubs back to the model object so later agents see them
     mg.metadata.hub_modules = kg_module.hub_nodes(top_n=5)
+    archivist.log_trace("Surveyor", "Module Graph Built", {"nodes": mg.metadata.node_count, "hubs": mg.metadata.hub_modules})
 
     if not quiet:
         console.print(_module_summary_table(kg_module, mg))
@@ -201,6 +203,7 @@ def run(
         kg_module = KnowledgeGraph.from_module_graph(mg)
         if not summary_only:
             module_path = kg_module.export_json(out_dir / "module_graph.json")
+        archivist.log_trace("Semanticist", "Semantic Enrichment Complete", {"domains": list(set([n.extra.get("domain") for n in mg.nodes if "domain" in n.extra]))})
 
     # ── Hydrologist ────────────────────────────────────────────────────
     if not quiet:
@@ -209,9 +212,11 @@ def run(
     hydrologist = Hydrologist(repo_root=repo, sql_dialect=sql_dialect)
     lg: LineageGraph = hydrologist.run()
     kg_lineage = KnowledgeGraph.from_lineage_graph(lg)
+    lg.metadata.hub_tables = kg_lineage.hub_nodes(top_n=5)
     lineage_path = None
     if not summary_only:
         lineage_path = kg_lineage.export_json(out_dir / "lineage_graph.json")
+    archivist.log_trace("Hydrologist", "Lineage Extraction Complete", {"edges": len(lg.edges), "source_count": lg.metadata.source_count})
 
     if not quiet:
         console.print(_lineage_summary_table(kg_lineage, lg))

@@ -68,11 +68,24 @@ class Archivist:
         md_content += f"**Sources:** {', '.join(sources[:10])}\n\n"
         md_content += f"**Sinks:** {', '.join(sinks[:10])}\n\n"
         
-        # 4. Known Debt
+        # 4. Known Debt & Risks
         md_content += "## ⚠️ Known Debt & Risks\n"
         md_content += f"- Circular dependency groups: {mg.metadata.circular_dependency_count}\n"
-        drift_count = sum(1 for n in mg.nodes if n.extra.get("doc_drift"))
-        md_content += f"- Modules with Documentation Drift: {drift_count}\n\n"
+        
+        drift_nodes = [n for n in mg.nodes if n.extra.get("doc_drift")]
+        md_content += f"- Modules with Documentation Drift: {len(drift_nodes)}\n"
+        for n in drift_nodes[:5]:
+            evidence = n.extra.get("drift_evidence", "No snippet available.")
+            md_content += f"  - `{n.id}`: {evidence}\n"
+        md_content += "\n"
+        
+        # 5. Lineage Deep Dive (Top 5 hubs)
+        md_content += "## 📈 Lineage Deep Dive\n"
+        for hub in lg.metadata.hub_tables[:5]:
+            upstream = [e.source for e in lg.edges if e.target == hub]
+            md_content += f"### {hub}\n"
+            md_content += f"**Sources:** {', '.join(upstream) if upstream else 'None (Source Table)'}\n"
+        md_content += "\n"
         
         # 5. Domains
         md_content += "## 📂 Domain Map\n"
@@ -109,6 +122,15 @@ class Archivist:
         hv_files = [n.path for n in mg.nodes if n.extra.get("high_velocity_core")]
         for f in hv_files[:5]:
             brief_content += f"- `{f}`\n"
+        brief_content += "\n"
+        
+        brief_content += "## 🧪 Risk Analysis\n"
+        if mg.metadata.circular_dependency_count > 0:
+            brief_content += f"⚠️ **Architecture Sinkhole:** {mg.metadata.circular_dependency_count} circular dependency groups detected. These will make unit testing difficult.\n"
+        
+        drift_count = sum(1 for n in mg.nodes if n.extra.get("doc_drift"))
+        if drift_count > 0:
+            brief_content += f"⚠️ **Documentation Decay:** {drift_count} modules have logic that differs from their comments. Trust the code, not the docstrings.\n"
         brief_content += "\n"
         
         out_path = self.output_dir / "onboarding_brief.md"
