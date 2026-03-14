@@ -264,7 +264,7 @@ def blast_radius(
     Standalone command to calculate the impact sphere of a module change.
     """
     from src.graph.knowledge_graph import KnowledgeGraph
-    from src.models.nodes import ModuleGraph
+    from src.models.nodes import ModuleGraph, LineageGraph
     import json
     
     if str(repo_path).startswith(("http://", "https://", "git@")):
@@ -282,10 +282,37 @@ def blast_radius(
     with open(mg_path) as f:
         mg = ModuleGraph.model_validate(json.load(f))
     
-    kg = KnowledgeGraph.from_module_graph(mg)
-    affected = kg.blast_radius(module_id, depth=depth)
+    # Unified Blast Radius Path
+    lg_path = out_dir / "lineage_graph.json"
+    lg = None
+    if lg_path.exists():
+        with open(lg_path) as f:
+            lg = LineageGraph.model_validate(json.load(f))
+            
+    kg_mg = KnowledgeGraph.from_module_graph(mg)
+    affected = kg_mg.blast_radius(module_id, depth=depth)
     
-    console.print(f"\n[bold yellow]Blast Radius for '{module_id}' (depth={depth}):[/bold yellow]")
+    # --- SQL Bridge Logic ---
+    if lg and module_id in kg_mg.graph:
+        module_path = kg_mg.graph.nodes[module_id].get("path")
+        if module_path:
+            # Find matching data nodes in lineage
+            matching_data_nodes = [n.id for n in lg.nodes if n.source_file == module_path]
+            if matching_data_nodes:
+                kg_lg = KnowledgeGraph.from_lineage_graph(lg)
+                for data_nid in matching_data_nodes:
+                    downstream_data = kg_lg.blast_radius(data_nid, depth=depth)
+                    # Map back to modules
+                    for d_nid in downstream_data:
+                        d_node = next((n for n in lg.nodes if n.id == d_nid), None)
+                        if d_node and d_node.source_file:
+                            # Convert path back to module id
+                            # (Heuristic: search MG for node with this path)
+                            affected_mod = next((n.id for n in mg.nodes if n.path == d_node.source_file), None)
+                            if affected_mod:
+                                affected.add(affected_mod)
+    
+    console.print(f"\n[bold yellow]Unified Blast Radius for '{module_id}' (depth={depth}):[/bold yellow]")
     if not affected:
         console.print("No downstream impact detected.")
     else:
