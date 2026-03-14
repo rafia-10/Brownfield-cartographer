@@ -1,0 +1,37 @@
+{
+  "models.customers": {
+    "id": "models.customers",
+    "path": "models/customers.sql",
+    "hash": "37232b60fbc19e48106c8ea7a1b54ad6",
+    "purpose": "Analysis failed.",
+    "doc_drift": false
+  },
+  "models.orders": {
+    "id": "models.orders",
+    "path": "models/orders.sql",
+    "hash": "a4884037dfa93d1d9ef2667b2d6a1b87",
+    "purpose": "Analysis failed.",
+    "doc_drift": false
+  },
+  "models.staging.stg_customers": {
+    "id": "models.staging.stg_customers",
+    "path": "models/staging/stg_customers.sql",
+    "hash": "d8913e11b7a0453d67a8bc952294c85c",
+    "purpose": "Analysis failed.",
+    "doc_drift": false
+  },
+  "models.staging.stg_orders": {
+    "id": "models.staging.stg_orders",
+    "path": "models/staging/stg_orders.sql",
+    "hash": "6ff3f19449bee50e0191174143264cda",
+    "purpose": "Analysis failed.",
+    "doc_drift": false
+  },
+  "models.staging.stg_payments": {
+    "id": "models.staging.stg_payments",
+    "path": "models/staging/stg_payments.sql",
+    "hash": "15a7fc11e852683912ba8a5f5baf4e94",
+    "purpose": "Analysis failed.",
+    "doc_drift": false
+  }
+}

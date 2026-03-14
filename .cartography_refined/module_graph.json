@@ -1,0 +1,160 @@
+{
+  "metadata": {
+    "repo_path": "/tmp/cartographer_v2vm4evm",
+    "generated_at": "2026-03-14T10:51:04.689305+00:00",
+    "node_count": 8,
+    "edge_count": 0,
+    "circular_dependency_count": 0,
+    "hub_modules": [
+      "models.customers",
+      "models.orders",
+      "models.staging.stg_customers",
+      "models.staging.stg_orders",
+      "models.staging.stg_payments"
+    ],
+    "extra": {
+      "day_one_report": "Could not synthesize report."
+    }
+  },
+  "nodes": [
+    {
+      "id": "models.customers",
+      "path": "models/customers.sql",
+      "language": "sql",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 70,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true,
+        "purpose": "Analysis failed.",
+        "doc_drift": false
+      }
+    },
+    {
+      "id": "models.orders",
+      "path": "models/orders.sql",
+      "language": "sql",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 57,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true,
+        "purpose": "Analysis failed.",
+        "doc_drift": false
+      }
+    },
+    {
+      "id": "models.staging.stg_customers",
+      "path": "models/staging/stg_customers.sql",
+      "language": "sql",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 23,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true,
+        "purpose": "Analysis failed.",
+        "doc_drift": false
+      }
+    },
+    {
+      "id": "models.staging.stg_orders",
+      "path": "models/staging/stg_orders.sql",
+      "language": "sql",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 24,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true,
+        "purpose": "Analysis failed.",
+        "doc_drift": false
+      }
+    },
+    {
+      "id": "models.staging.stg_payments",
+      "path": "models/staging/stg_payments.sql",
+      "language": "sql",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 26,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true,
+        "purpose": "Analysis failed.",
+        "doc_drift": false
+      }
+    },
+    {
+      "id": "dbt_project",
+      "path": "dbt_project.yml",
+      "language": "yaml",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 27,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true
+      }
+    },
+    {
+      "id": "models.schema",
+      "path": "models/schema.yml",
+      "language": "yaml",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 83,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true
+      }
+    },
+    {
+      "id": "models.staging.schema",
+      "path": "models/staging/schema.yml",
+      "language": "yaml",
+      "classes": [],
+      "functions": [],
+      "imports": [],
+      "is_entry_point": false,
+      "loc": 32,
+      "complexity": 0,
+      "git_velocity": 0.0,
+      "pagerank": 0.125,
+      "extra": {
+        "dead_code_candidate": true
+      }
+    }
+  ],
+  "edges": []
+}

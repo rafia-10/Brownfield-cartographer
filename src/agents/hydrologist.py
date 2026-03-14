@@ -27,6 +27,7 @@ from pathlib import Path
 
 from src.analyzers.sql_lineage import SQLAnalysisResult, analyze_file as analyze_sql
 from src.analyzers.tree_sitter_analyzer import AnalysisResult, analyze_file as analyze_py
+from src.analyzers.dag_config_parser import parse_dbt_topology
 from src.models.nodes import (
     LineageEdge,
     LineageGraph,
@@ -123,17 +124,37 @@ class Hydrologist:
             if not _is_excluded(p, self.skip_dirs)
         )
 
-    def _discover_dbt(self) -> dict[str, Any]:
-        """Look for dbt_project.yml and related models."""
-        topology = {"models": [], "sources": []}
-        for p in self.repo_root.rglob("dbt_project.yml"):
-            if not _is_excluded(p, self.skip_dirs):
-                topology["project_file"] = str(p)
-                # Look for sources in the same or subdirs
-                for src_file in p.parent.rglob("*.yml"):
-                    if "sources" in src_file.name or "schema" in src_file.name:
-                        topology["sources"].append(str(src_file))
-        return topology
+    def _process_dbt_config(
+        self,
+        nodes: dict[str, TableNode],
+        edges: list[LineageEdge],
+        seen: set[tuple[str, str]],
+    ) -> None:
+        """Parses dbt sources/models from YAML and adds them to the graph."""
+        topology = parse_dbt_topology(self.repo_root, self.skip_dirs)
+        project_file = topology.get("project_file")
+        if not project_file:
+            return
+
+        for source in topology.get("sources", []):
+            if not isinstance(source, dict):
+                continue
+            src_name = source.get("name", "")
+            for table in source.get("tables", []):
+                if not isinstance(table, dict):
+                    continue
+                tbl_name = table.get("name", "")
+                full_name = f"{src_name}.{tbl_name}" if src_name else tbl_name
+                node = self._ensure_node(full_name, nodes, project_file)
+                node.extra["dbt_type"] = "source"
+
+        for model in topology.get("models", []):
+            if not isinstance(model, dict):
+                continue
+            mod_name = model.get("name", "")
+            if mod_name:
+                node = self._ensure_node(mod_name, nodes, project_file)
+                node.extra["dbt_type"] = "model"
 
     # ------------------------------------------------------------------
     # Graph accumulators
@@ -202,14 +223,15 @@ class Hydrologist:
             log.warning("Hydrologist [SQL] %s — %s", path.name, "; ".join(result.errors))
 
         for rec in result.records:
-            if rec.target:
+            target = rec.target
+            if not target:
+                # For dbt models, the target is implicitly the stem of the file
+                target = path.stem
+            
+            if target:
                 for src in rec.sources:
                     op = _OP_MAP.get(rec.operation, LineageOperation.SELECT)
-                    self._add_edge(src, rec.target, op, rel, nodes, edges, seen)
-            else:
-                # Bare SELECT — just ensure source nodes exist
-                for src in rec.sources:
-                    self._ensure_node(src, nodes, rel)
+                    self._add_edge(src, target, op, rel, nodes, edges, seen)
 
     # ------------------------------------------------------------------
     # Python processing
@@ -238,7 +260,8 @@ class Hydrologist:
                 resource = call.kwargs.get("name", "")
             if not resource:
                 # Synthesise a placeholder so the edge still appears
-                resource = f"<{call.method_name}:{path.stem}:{call.line}>"
+                resource = f"DYNAMIC_REF_{call.method_name}_{call.line}"
+                log.info("Hydrologist: Dynamic reference detected in %s at line %d", path.name, call.line)
 
             if op == LineageOperation.WRITE:
                 # Python file produces → resource
@@ -306,6 +329,9 @@ class Hydrologist:
         for py_file in self._py_files():
             log.debug("Hydrologist: PY  %s", py_file.name)
             self._process_python(py_file, nodes, edges, seen)
+
+        # -- dbt Configuration --
+        self._process_dbt_config(nodes, edges, seen)
 
         self._label_sources_sinks(nodes, edges)
 

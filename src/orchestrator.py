@@ -195,7 +195,7 @@ def run(
         if not quiet:
             console.print("\n[magenta]🧠 Running Semanticist…[/magenta]")
         
-        semanticist = Semanticist(repo_root=repo)
+        semanticist = Semanticist(repo_root=repo, output_dir=out_dir)
         mg = semanticist.run(mg)
         # Re-export with semantic metadata
         kg_module = KnowledgeGraph.from_module_graph(mg)
@@ -218,10 +218,13 @@ def run(
 
     # ── Archivist (Phase 4) ────────────────────────────────────────────
     codebase_md_path = None
+    onboarding_brief_path = None
     if run_archivist and not summary_only:
         if not quiet:
             console.print("\n[yellow]📁 Running Archivist…[/yellow]")
-        codebase_md_path = archivist.run(mg, lg)
+        artifacts = archivist.run(mg, lg)
+        codebase_md_path = artifacts.get("codebase_md")
+        onboarding_brief_path = artifacts.get("onboarding_brief")
 
     if not quiet:
         console.print(
@@ -240,6 +243,8 @@ def run(
         "module_graph_path": module_path,
         "lineage_graph_path": lineage_path,
         "codebase_md_path": codebase_md_path,
+        "onboarding_brief_path": onboarding_brief_path,
+        "output_dir": str(out_dir),
         "module_stats": kg_module.summary_stats(),
         "lineage_stats": kg_lineage.summary_stats(),
     }

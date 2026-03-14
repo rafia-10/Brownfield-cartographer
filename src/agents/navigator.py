@@ -7,10 +7,13 @@ exploring the codebase, backed by evidence from the Cartographer's analysis.
 
 from __future__ import annotations
 
+import os
 import json
 import logging
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Sequence, TypedDict, Union
+
+from dotenv import load_dotenv
 
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.tools import tool
@@ -19,6 +22,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 
 from src.models.nodes import ModuleGraph, LineageGraph
+from src.graph.knowledge_graph import KnowledgeGraph
 
 log = logging.getLogger(__name__)
 
@@ -59,30 +63,59 @@ def create_navigator_tools(module_graph: Dict[str, Any], lineage_graph: Dict[str
         return f"Lineage for '{table_or_file}':\n  Sources: {', '.join(upstream)}\n  Sinks: {', '.join(downstream)}"
 
     @tool
+    def explain_module(module_id: str) -> str:
+        """Explain the business purpose and documentation state of a module."""
+        for node in module_graph.get("nodes", []):
+            if node["id"] == module_id:
+                purpose = node.get("extra", {}).get("purpose", "No purpose statement available.")
+                drift = node.get("extra", {}).get("doc_drift", False)
+                drift_msg = "⚠️ Documentation drift detected!" if drift else "✅ Documentation is up to date."
+                return f"Module: {module_id}\nPurpose: {purpose}\nStatus: {drift_msg}"
+        return f"Module '{module_id}' not found."
+
+    @tool
+    def get_blast_radius(module_id: str, depth: int = 2) -> str:
+        """Calculate the impact radius (downstream dependencies) if this module changes."""
+        mg = ModuleGraph.model_validate(module_graph)
+        kg = KnowledgeGraph.from_module_graph(mg)
+        affected = kg.blast_radius(module_id, depth=depth)
+        
+        if not affected:
+            return f"No downstream impact detected for '{module_id}' at depth {depth}."
+        
+        return f"Changing '{module_id}' may impact (depth={depth}):\n- " + "\n- ".join(list(affected)[:20])
+
+    @tool
     def read_file_segment(path: str, start_line: int, end_line: int) -> str:
-        """Read a specific line range from a file for evidence citation."""
-        full_path = repo_root / path
-        if not full_path.exists():
-            return "File not found."
+        """Read a specific segment of a file (e.g. for citing sources)."""
+        p = repo_root / path
+        if not p.exists():
+            return f"File '{path}' not found."
         try:
-            lines = full_path.read_text(errors="replace").splitlines()
-            segment = lines[max(0, start_line-1): min(len(lines), end_line)]
+            lines = p.read_text().splitlines()
+            segment = lines[max(0, start_line-1):min(len(lines), end_line)]
             return "\n".join(segment)
         except Exception as e:
-            return f"Error reading file: {e}"
+            return f"Error reading file: {str(e)}"
 
-    return [search_modules, get_dependencies, get_lineage, read_file_segment]
+    return [search_modules, get_dependencies, get_lineage, read_file_segment, explain_module, get_blast_radius]
 
 # --- Agent Build ---
 
 class Navigator:
     def __init__(self, repo_root: str | Path, module_graph: ModuleGraph, lineage_graph: LineageGraph):
+        load_dotenv()
         self.repo_root = Path(repo_root).resolve()
         self.mg_dict = module_graph.model_dump(mode="json")
         self.lg_dict = lineage_graph.model_dump(mode="json")
         
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        
         self.tools = create_navigator_tools(self.mg_dict, self.lg_dict, self.repo_root)
-        self.llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash").bind_tools(self.tools)
+        self.llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            google_api_key=api_key
+        ).bind_tools(self.tools)
         
         # Build Graph
         workflow = StateGraph(NavigatorState)

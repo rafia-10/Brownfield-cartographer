@@ -90,6 +90,32 @@ class Archivist:
         log.info(f"Archivist: Generated CODEBASE.md at {out_path}")
         return out_path
 
+    def generate_onboarding_brief(self, mg: ModuleGraph, lg: LineageGraph) -> Path:
+        """
+        Generates onboarding_brief.md answering the Five FDE Questions.
+        """
+        report = mg.metadata.extra.get("day_one_report", "No report available.")
+        
+        brief_content = f"# 🚀 FDE Onboarding Brief: {self.repo_root.name}\n\n"
+        brief_content += "## 🧭 Five Day-One Questions\n\n"
+        brief_content += report + "\n\n"
+        
+        brief_content += "## 📊 System Stats\n"
+        brief_content += f"- **Module Count:** {mg.metadata.node_count}\n"
+        brief_content += f"- **Data Nodes:** {lg.metadata.node_count}\n"
+        brief_content += f"- **Circular Dependencies:** {mg.metadata.circular_dependency_count}\n\n"
+        
+        brief_content += "## 📂 High-Velocity Core (Likely Pain Points)\n"
+        hv_files = [n.path for n in mg.nodes if n.extra.get("high_velocity_core")]
+        for f in hv_files[:5]:
+            brief_content += f"- `{f}`\n"
+        brief_content += "\n"
+        
+        out_path = self.output_dir / "onboarding_brief.md"
+        out_path.write_text(brief_content)
+        log.info(f"Archivist: Generated onboarding_brief.md at {out_path}")
+        return out_path
+
     def get_changed_files(self) -> List[Path]:
         """Uses git diff to find files changed since last commit (best effort)."""
         try:
@@ -100,7 +126,10 @@ class Archivist:
             log.warning(f"Archivist: Git diff failed, falling back to full scan. {e}")
             return []
             
-    def run(self, mg: ModuleGraph, lg: LineageGraph) -> Path:
+    def run(self, mg: ModuleGraph, lg: LineageGraph) -> dict[str, Path]:
         """Main entry point to archive the run."""
-        self.log_trace("Archivist", "Generate CODEBASE.md", {"repo": str(self.repo_root)})
-        return self.generate_CODEBASE_md(mg, lg)
+        self.log_trace("Archivist", "Generate Artifacts", {"repo": str(self.repo_root)})
+        return {
+            "codebase_md": self.generate_CODEBASE_md(mg, lg),
+            "onboarding_brief": self.generate_onboarding_brief(mg, lg)
+        }

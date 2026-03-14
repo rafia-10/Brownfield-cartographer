@@ -100,7 +100,7 @@ def _strip_jinja(text: str) -> str:
     # 2. Handle {{ source(..., ...) }} - keep the second arg
     text = re.sub(r"\{\{\s*source\(['\"]\w+['\"]\s*,\s*['\"](\w+)['\"]\)\s*\}\}", r"\1", text)
     # 3. Strip all other {{ ... }} expressions
-    text = re.sub(r"\{\{.*?\}\}", " JINJA_VAR ", text)
+    text = re.sub(r"\{\{.*?\}\}", "JINJA_VAR", text)
     # 4. Strip all {% ... %} blocks (loops, if, set)
     text = re.sub(r"\{%.*?%\}", " ", text, flags=re.DOTALL)
     # 5. Generic cleanup of whitespace

@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 
 # File globs the Surveyor will collect
 _PYTHON_GLOB = "**/*.py"
+_SQL_GLOB = "**/*.sql"
 _YAML_GLOBS = ("**/*.yaml", "**/*.yml")
 
 # Directories to always skip
@@ -155,6 +156,39 @@ def _find_cycles(nodes: list[str], edges: list[tuple[str, str]]) -> list[list[st
 
 
 # ---------------------------------------------------------------------------
+# Helpers for High-Velocity Core
+# ---------------------------------------------------------------------------
+
+
+def _identify_high_velocity_core(nodes: list[ModuleNode]) -> list[str]:
+    """
+    Identify the 20% of files responsible for 80% of changes (Pareto principle).
+    Returns a list of module IDs.
+    """
+    if not nodes:
+        return []
+
+    # Sort nodes by velocity descending
+    sorted_nodes = sorted(nodes, key=lambda n: n.git_velocity, reverse=True)
+    total_velocity = sum(n.git_velocity for n in nodes)
+
+    if total_velocity == 0:
+        return []
+
+    core_ids = []
+    cumulative_velocity = 0.0
+    for node in sorted_nodes:
+        cumulative_velocity += node.git_velocity
+        core_ids.append(node.id)
+        if cumulative_velocity >= 0.8 * total_velocity:
+            break
+
+    # Cap at 20% of files if many have equal velocity
+    max_core_count = max(1, int(0.2 * len(nodes)))
+    return core_ids[:max_core_count]
+
+
+# ---------------------------------------------------------------------------
 # Public agent
 # ---------------------------------------------------------------------------
 
@@ -191,6 +225,13 @@ class Surveyor:
                 files.append(p)
         return sorted(files)
 
+    def _discover_sql_files(self) -> list[Path]:
+        files: list[Path] = []
+        for p in self.repo_root.rglob(_SQL_GLOB):
+            if not self._is_excluded(p):
+                files.append(p)
+        return sorted(files)
+
     def _discover_yaml_files(self) -> list[Path]:
         files: list[Path] = []
         for glob in _YAML_GLOBS:
@@ -207,7 +248,7 @@ class Surveyor:
         raw_edges: list[tuple[str, str, DependencyKind, int | None]] = []
 
         # --- Analysis (Universal) ---
-        all_files = self._discover_python_files() + self._discover_yaml_files()
+        all_files = self._discover_python_files() + self._discover_sql_files() + self._discover_yaml_files()
         
         for f in all_files:
             mod_id = _path_to_module_id(f, self.repo_root)
@@ -277,6 +318,11 @@ class Surveyor:
         for mod_id, node in nodes.items():
             if mod_id not in import_targets and not node.is_entry_point:
                 node.extra["dead_code_candidate"] = True
+
+        # --- High velocity core ---
+        high_velocity_ids = _identify_high_velocity_core(list(nodes.values()))
+        for mod_id in high_velocity_ids:
+            nodes[mod_id].extra["high_velocity_core"] = True
 
         # --- Assemble graph ---
         metadata = GraphMetadata(
